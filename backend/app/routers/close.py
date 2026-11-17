@@ -14,6 +14,11 @@ def seal(body: dict = Body(...)):
     return svc.seal(body)
 
 
+@router.post("/reopen")
+def reopen(body: dict = Body(...)):
+    return svc.reopen(body)
+
+
 @router.get("/batches")
 def batches():
     return svc.list_batches()

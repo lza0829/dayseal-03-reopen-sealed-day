@@ -27,7 +27,7 @@ def create_line(body: dict[str, Any]) -> dict[str, Any]:
         if not day:
             raise HTTPException(400, "未设置营业日")
         if close_repo.is_sealed(conn, day):
-            raise HTTPException(409, f"营业日 {day} 已封账，禁止新增流水")
+            raise HTTPException(409, f"营业日 {day} 已封账，禁止新增流水；请先解封该日")
         created = _now()
         lid = line_repo.insert_line(
             conn,
@@ -56,7 +56,7 @@ def patch_line(line_id: int, body: dict[str, Any]) -> dict[str, Any]:
         if not row:
             raise HTTPException(404, "流水不存在")
         if close_repo.is_sealed(conn, row["business_day"]):
-            raise HTTPException(409, f"营业日 {row['business_day']} 已封账，禁止修改流水")
+            raise HTTPException(409, f"营业日 {row['business_day']} 已封账，禁止修改流水；请先解封该日")
         line_repo.update_line(
             conn,
             line_id,
@@ -80,7 +80,7 @@ def remove_line(line_id: int) -> dict[str, Any]:
         if not row:
             raise HTTPException(404, "流水不存在")
         if close_repo.is_sealed(conn, row["business_day"]):
-            raise HTTPException(409, f"营业日 {row['business_day']} 已封账，禁止删除流水")
+            raise HTTPException(409, f"营业日 {row['business_day']} 已封账，禁止删除流水；请先解封该日")
         line_repo.delete_line(conn, line_id)
         conn.commit()
         return {"deleted": True, "id": line_id}

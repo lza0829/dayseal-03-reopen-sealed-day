@@ -1,4 +1,5 @@
 from __future__ import annotations
+import sqlite3
 from app.db import connect
 
 
@@ -33,7 +34,10 @@ CREATE TABLE IF NOT EXISTS close_batches (
   line_count INTEGER NOT NULL,
   status TEXT NOT NULL,
   sealed_at TEXT NOT NULL,
-  note TEXT
+  note TEXT,
+  voided_at TEXT,
+  void_reason TEXT,
+  superseded_by_batch_id INTEGER
 );
 CREATE TABLE IF NOT EXISTS variance_rows (
   id INTEGER PRIMARY KEY,
@@ -51,15 +55,49 @@ CREATE TABLE IF NOT EXISTS variance_holds (
 CREATE TABLE IF NOT EXISTS reopen_requests (
   id INTEGER PRIMARY KEY,
   business_day TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'none'
+  status TEXT NOT NULL DEFAULT 'none',
+  batch_id INTEGER,
+  reason TEXT,
+  created_at TEXT
 );
 '''
+
+
+def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    return {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+
+
+def _add_column(conn: sqlite3.Connection, table: str, column: str, decl: str) -> None:
+    if column not in _columns(conn, table):
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+
+
+def migrate(conn: sqlite3.Connection) -> None:
+    """Bring databases created before the reopen policy up to the current shape."""
+    _add_column(conn, "close_batches", "voided_at", "TEXT")
+    _add_column(conn, "close_batches", "void_reason", "TEXT")
+    _add_column(conn, "close_batches", "superseded_by_batch_id", "INTEGER")
+    _add_column(conn, "reopen_requests", "batch_id", "INTEGER")
+    _add_column(conn, "reopen_requests", "reason", "TEXT")
+    _add_column(conn, "reopen_requests", "created_at", "TEXT")
+
+    # At most one current (sealed) batch per business day. Legacy databases that
+    # already hold duplicates cannot get the index; the application-level check
+    # inside BEGIN IMMEDIATE still serialises seal()/reopen() in that case.
+    try:
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_close_batches_sealed_day "
+            "ON close_batches(business_day) WHERE status='sealed'"
+        )
+    except sqlite3.IntegrityError:
+        pass
 
 
 def seed_if_empty() -> None:
     conn = connect()
     try:
         conn.executescript(SCHEMA)
+        migrate(conn)
         n = conn.execute("SELECT COUNT(*) c FROM tills").fetchone()["c"]
         if n:
             return

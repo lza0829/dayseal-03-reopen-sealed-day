@@ -12,17 +12,20 @@ def dashboard() -> dict[str, Any]:
     try:
         day = settings_repo.get(conn, "business_day") or ""
         total, count = line_repo.day_total(conn, day) if day else (0.0, 0)
-        sealed = close_repo.is_sealed(conn, day) if day else False
+        current = close_repo.current_batch(conn, day) if day else None
         return {
             "business_day": day,
             "till_count": len(till_repo.list_tills(conn)),
             "line_count_today": count,
             "system_total_today": total,
-            "sealed_today": sealed,
-            "close_batch_count": conn.execute("SELECT COUNT(*) c FROM close_batches").fetchone()["c"],
-            "open_variance_count": conn.execute(
-                "SELECT COUNT(*) c FROM variance_rows WHERE disposition='pending'"
-            ).fetchone()["c"],
+            "sealed_today": current is not None,
+            "current_batch_no": current["batch_no"] if current else None,
+            # Counters follow the same "current = sealed" rule as the write gate,
+            # so a reopened (voided) batch never shows up as a sealed close.
+            "close_batch_count": close_repo.count_current_batches(conn),
+            "voided_batch_count": close_repo.count_voided_batches(conn),
+            "sealed_day_count": close_repo.count_sealed_days(conn),
+            "open_variance_count": close_repo.count_open_variances(conn),
         }
     finally:
         conn.close()
